@@ -1,0 +1,7 @@
+{:environments
+ {:local {:domain "oldpyramid"
+          :host-http-port 8080
+          :host-https-port 8443}
+  :dev {:domain "do.onlinelinguisticdatabase.org"
+        :host-http-port 80
+        :host-https-port 443}}}
