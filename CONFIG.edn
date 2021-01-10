@@ -1,7 +1,31 @@
-{:environments
+{:configurations
+ {:production
+  {:services
+   {:old-server-1
+    {:port 8010}
+    :old-server-2
+    {:port 8011}
+    :old-server-3
+    {:port 8012}
+    :old-server-4
+    {:port 8013}}
+   :images
+   {:old-server
+    {:name "old-server"
+     :version "1.0"
+     :type :pyramid}}}}
+
+ ;; chow main with tofu, mild
+ ;; peanut dish with tofu, mild DONE
+ ;; teriyaki tofu, mild DONE
+ ;; jungle tofu hot DONE
+
+ :environments
  {:local {:domain "oldpyramid"
           :host-http-port 8080
-          :host-https-port 8443}
+          :host-https-port 8443
+          :configuration :production}
   :dev {:domain "do.onlinelinguisticdatabase.org"
         :host-http-port 80
-        :host-https-port 443}}}
+        :host-https-port 443
+        :configuration :production}}}

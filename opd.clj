@@ -124,10 +124,15 @@
     (catch RuntimeException e
       (printf "Error parsing edn file '%s': %s\n" source (.getMessage e)))))
 
+(defn load-config [env]
+  (let [whole (-> config-path load-edn)
+        {:keys [configuration] :as config} (-> whole :environments env)]
+    (assoc config :configuration (get-in whole [:configurations configuration]))))
+
 (defn load-context
   [env]
   {:secrets (load-edn secrets-path)
-   :config (-> config-path load-edn :environments env)
+   :config (load-config env)
    :env env
    :history []})
 
@@ -640,6 +645,26 @@
    (fn [ctx] (printf "%s\nERROR. Failed to build the OLD image.\n"
                      (get-history-summary ctx)) ctx)))
 
+(defn build-old-specify
+  [{{{{{o-name :name version :version o-type :type} :old-server} :images}
+     :configuration} :config :as ctx}]
+  (println "Building the OLD Server Docker image ...")
+  (let [cmd
+        ["docker" "build" "-t"
+         (format "%s:%s" o-name version)
+         (get-old-source-path {:old-type o-type})]]
+    (println (str/join " " cmd))
+    #_(just-then
+     (run-shell-cmd ctx cmd
+                    (format "Build OLD Server Docker image %s\n\n%s\n\n"
+                            (get-old-image-tag ctx) (str/join " " cmd)))
+     (fn [ctx] (printf "%s\nBuilt the OLD Server Docker image.\n" (get-history-summary ctx)) ctx)
+     (fn [ctx] (printf "%s\nERROR. Failed to build the OLD Server Docker image.\n"
+                       (get-history-summary ctx)) ctx))
+
+
+    (pprint/pprint cmd)))
+
 (defn build-old-pyr
   "Build the OLD Pyramid Docker image"
   [ctx]
@@ -867,6 +892,7 @@
    :bootstrap-dumps bootstrap-dumps
    :build-old build-old
    :build-old-pyr build-old-pyr
+   :build-old-specify build-old-specify
    :config show-config
    :create-network create-opd-network-idempotent
    :extract-olds-metadata extract-olds-metadata-subcommand
@@ -889,7 +915,8 @@
    :write-nginx-config write-nginx-sites-config-file-subcommand
    :down-all down-all-subcommand
    :deploy-new-pylons deploy-new-pylons
-   :deploy-new-pyramid deploy-new-pyramid})
+   :deploy-new-pyramid deploy-new-pyramid
+   })
 
 (defn main []
   (let [[subcommand environment & args] *command-line-args*
