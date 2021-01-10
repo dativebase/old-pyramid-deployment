@@ -1,3 +1,6 @@
 [submodule "src/old"]
 	path = src/old
 	url = https://github.com/dativebase/old.git
+[submodule "src/old-pyramid"]
+	path = src/old-pyramid
+	url = git@github.com:dativebase/old-pyramid.git
