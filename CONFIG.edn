@@ -2,23 +2,22 @@
  {:production
   {:services
    {:old-server-1
-    {:port 8010}
+    {:port 8010
+     :image :old-server}
     :old-server-2
-    {:port 8011}
+    {:port 8011
+     :image :old-server}
     :old-server-3
-    {:port 8012}
+    {:port 8012
+     :image :old-server}
     :old-server-4
-    {:port 8013}}
+    {:port 8013
+     :image :old-server}}
    :images
    {:old-server
     {:name "old-server"
      :version "1.0"
      :type :pyramid}}}}
-
- ;; chow main with tofu, mild
- ;; peanut dish with tofu, mild DONE
- ;; teriyaki tofu, mild DONE
- ;; jungle tofu hot DONE
 
  :environments
  {:local {:domain "oldpyramid"

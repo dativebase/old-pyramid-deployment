@@ -15,6 +15,26 @@ the OLD is officially deprecated, some OLD instances are still running on it as
 of this writing (2020-08-26.)
 
 
+Build the System Locally
+================================================================================
+
+Create the network::
+
+    $ bb opd.clj create-network local
+
+Build the MySQL image and run a container based on it::
+
+    $ bb opd.clj up-build-mysql-pyr local
+
+Build the OLD Server Docker image (tag name old-server:1.0)::
+
+    $ bb opd.clj build-old-cfg local
+
+Create the OLD Server Docker containers::
+
+    $ bb opd.clj up-olds-cfg local
+
+
 TODOs
 ================================================================================
 

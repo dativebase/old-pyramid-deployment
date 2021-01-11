@@ -1,8 +1,11 @@
-;; OPD is a Clojure Babashka script for performing tasks related to orchestrating
-;; a containerized deployment of the OLD Pyramid REST API.
-
-(require '[clojure.java.shell :as shell]
-         '[clojure.pprint :as pprint])
+(ns opd
+  "OPD is a Clojure Babashka script for performing tasks related to orchestrating
+  a containerized deployment of the OLD Pyramid REST API."
+  (:require [clojure.java.shell :as shell]
+            [clojure.string :as str]
+            [clojure.edn :as edn]
+            [clojure.java.io :as io]
+            [clojure.pprint :as pprint]))
 
 (defn get-dirname [path]
   (->> (str/split path #"/") butlast (str/join "/")))
@@ -198,12 +201,33 @@
        (str/join "\n- ")
        (str "- ")))
 
-(defn- get-docker-tabular-as-seq-str [cmd]
-  (->> cmd
-       (apply shell/sh)
-       :out
-       str/split-lines
-       (map (fn [line] (str/split line #"( ){2,}")))))
+(defn get-row-parser [header-line]
+  (let [indices (->> (str/replace header-line #"(\w) (\w)" "$1-$2")
+                     (partition-by #(= \space %))
+                     (reduce (fn [idxs chunk]
+                               (let [last-idx (last idxs)]
+                                 (conj idxs (+ last-idx (count chunk)))))
+                             [0])
+                     (partition 2)
+                     (map first)
+                     (partition-all 2 1))]
+    (fn [line]
+      (map
+       (fn [[start end]]
+         (cond->> line
+           :always (drop start)
+           end (take (- end start))
+           :always (apply str)
+           :always str/trim))
+       indices))))
+
+(defn- get-docker-tabular-as-seq-str
+  "Run a docker read cmd and parse its tabular stdout into a sequence of
+  sequences of strings"
+  [cmd]
+  (let [[header :as all] (->> cmd (apply shell/sh) :out str/split-lines)
+        parse! (get-row-parser header)]
+    (map parse! all)))
 
 (defn- get-docker-images-lines []
   (get-docker-tabular-as-seq-str ["docker" "images"]))
@@ -645,25 +669,21 @@
    (fn [ctx] (printf "%s\nERROR. Failed to build the OLD image.\n"
                      (get-history-summary ctx)) ctx)))
 
-(defn build-old-specify
+(defn build-old-cfg
+  "Build the OLD image using the config"
   [{{{{{o-name :name version :version o-type :type} :old-server} :images}
      :configuration} :config :as ctx}]
   (println "Building the OLD Server Docker image ...")
-  (let [cmd
-        ["docker" "build" "-t"
-         (format "%s:%s" o-name version)
-         (get-old-source-path {:old-type o-type})]]
+  (let [tag-name (format "%s:%s" o-name version)
+        cmd ["docker" "build" "-t" tag-name
+             (get-old-source-path {:old-type o-type})]]
     (println (str/join " " cmd))
-    #_(just-then
+    (just-then
      (run-shell-cmd ctx cmd
-                    (format "Build OLD Server Docker image %s\n\n%s\n\n"
-                            (get-old-image-tag ctx) (str/join " " cmd)))
+                    (format "Build OLD Server Docker image %s" tag-name))
      (fn [ctx] (printf "%s\nBuilt the OLD Server Docker image.\n" (get-history-summary ctx)) ctx)
      (fn [ctx] (printf "%s\nERROR. Failed to build the OLD Server Docker image.\n"
-                       (get-history-summary ctx)) ctx))
-
-
-    (pprint/pprint cmd)))
+                       (get-history-summary ctx)) ctx))))
 
 (defn build-old-pyr
   "Build the OLD Pyramid Docker image"
@@ -726,6 +746,47 @@
       (if cet (recur cet) (just ctx)))))
 
 (defn up-olds-pyr [ctx] (up-olds (assoc ctx :old-type :pyramid)))
+
+(defn up-old [ctx {:keys [container-name]
+                   {i-name :name i-version :version} :image :as old}]
+  (if (get-docker-process-by-name container-name)
+    (container-already-exists ctx old)
+    (let [cmd
+          ["docker"
+           "run"
+           "-d"
+           "--network" net-name
+           "--name" (name container-name)
+           "-v" (str (path-join private-dir "old-server-store") ":/old-server-store")
+           (str i-name ":" i-version)
+           "/venv/bin/pserve"
+           "config.ini"
+           "http_port=8000"
+           "http_host=0.0.0.0"]]
+      (just (run-shell-cmd ctx cmd
+                           (format "Create OLD Server Docker container %s" container-name))))))
+
+(defn up-olds-cfg
+  "Bring up OLD Server containers as specified by the config"
+  [{{{{:keys [old-server]} :images services :services} :configuration} :config :as ctx}]
+  (println "Running OLD Server containers ...")
+  (create-opd-network-idempotent ctx)
+  (let [services (->> services
+                      (filter (fn [[k {:keys [image] :as v}]] (= image :old-server)))
+                      (into {}))]
+    (->> services
+         (map (fn [[s-name service]]
+                (let [s-name (name s-name)]
+                  (printf "\nRunning OLD Server container %s\n" s-name)
+                  (just-then
+                   (up-old ctx (merge service
+                                      {:container-name s-name
+                                       :image old-server}))
+                   (fn [ctx] (printf "%s\nRan OLD Server container %s.\n"
+                                     (get-history-summary ctx) s-name))
+                   (fn [ctx] (printf "%s\nERROR. Failed to run OLD Server container %s.\n"
+                                     (get-history-summary ctx) s-name))))))
+         doall)))
 
 (defn bootstrap-dumps [ctx]
   (let [olds (extract-olds-metadata ctx)]
@@ -892,7 +953,7 @@
    :bootstrap-dumps bootstrap-dumps
    :build-old build-old
    :build-old-pyr build-old-pyr
-   :build-old-specify build-old-specify
+   :build-old-cfg build-old-cfg
    :config show-config
    :create-network create-opd-network-idempotent
    :extract-olds-metadata extract-olds-metadata-subcommand
@@ -901,12 +962,14 @@
    :get-docker-networks get-docker-networks-subcommand
    :get-docker-process get-docker-process-subcommand
    :get-docker-processes get-docker-processes-subcommand
+   :ps get-docker-processes-subcommand
    :load-dump load-dump-to-db-subcommand
    :up-build-mysql up-build-mysql-subcommand
    :up-build-mysql-pyr up-build-mysql-pyr-subcommand
    :up-build-nginx up-build-nginx-subcommand
    :up-build-nginx-pyr up-build-nginx-subcommand-pyr
    :up-olds up-olds
+   :up-olds-cfg up-olds-cfg
    :up-olds-pyr up-olds-pyr
    :repair-old-configs repair-old-configs
    :repair-old-pyr-configs repair-old-pyr-configs
